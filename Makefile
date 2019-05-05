@@ -3,6 +3,11 @@ X_HALF:=960
 Y_HALF:=540
 RES_HALF:=960x540
 
+
+run:
+	python run.py
+
+
 single:
 	ffmpeg \
 		-i /Volumes/photo/_worlds/DJI_0586.MP4 \

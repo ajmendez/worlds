@@ -11,53 +11,97 @@ from itertools import product
 import numpy as np
 import ffmpeg
 
+        
+       #  https://github.com/varenc/homebrew-ffmpeg
+       # brew tap varenc/ffmpeg
+       # brew install varenc/ffmpeg/ffmpeg
+       # brew options varenc/ffmpeg/ffmpeg
+       
+        #https://trac.ffmpeg.org/wiki/Create%20a%20mosaic%20out%20of%20several%20input%20videos
+        #https://www.raspberrypi.org/documentation/raspbian/applications/omxplayer.md
+        #https://github.com/kkroening/ffmpeg-python/blob/master/ffmpeg/_filters.py#L28
 
 
 
 _ = datetime.now()
 NOW = datetime(_.year, _.month, _.day)
 
-DISPLAY_PARAMS = {
-    'display01':(800, 480)
-}
 PARAMS = {
     'display01_world':{
-        'width':        200,
-        'height':       200,
-        'crop_height':  1080,
-        'crop_width':   1080,
-        
-        'num_images':   16,
-        'ha':           'center',
-        'va':           'center'
-        
-    }
+        'display_width':    800,
+        'display_height':   480,
+        'width':            200,
+        'height':           200,
+        'crop_height':      1080,
+        'crop_width':       1080,
+                            
+        'num_images':       16,
+        'ha':               'center',
+        'va':               'center'
+    },
+    'display05_world':{
+        'display_width':    1920,
+        'display_height':   1080,
+        'width':            240, # 8
+        'height':           240,
+        'crop_height':      1080,
+        'crop_width':       1080,
+                            
+        'num_images':       32,
+        'ha':               'center',
+        'va':               'center'
+    },
+    'display05_travel':{
+        'display_width':    1920,
+        'display_height':   1080,
+        'height':           360,
+        'width':            640, # 3
+        'crop_height':      1080,
+        'crop_width':       1920,
+                            
+        'num_images':       9,
+        'ha':               'center',
+        'va':               'center'
+    },
     
 }
 
+DEFAULT_DEVICE = 'display01'
+MODE='world'
+
+DEFAULT_DEVICE = 'display05'
+MODE='world'
+
+DEFAULT_DEVICE = 'display05'
+MODE='travel'
 
 
 class Config(object):
     '''Configuration for the video processing'''
-    def __init__(self, device_id='display01', dt=NOW, mode='world'):
+    def __init__(self, device_id=DEFAULT_DEVICE, dt=NOW, mode=MODE):
         self.dt = dt
-        self.device_id='display01'
-        self.display_width,self.display_height = DISPLAY_PARAMS[device_id]
+        self.device_id = device_id
+        self.mode = mode
+        # self.display_width,self.display_height = DISPLAY_PARAMS[device_id]
         
         self.tag = '{device_id}_{mode}'.format(**locals())
         for k,v in PARAMS[self.tag].items():
             setattr(self, k, v)
         
+        self.border_color = 'LightSteelBlue'
         
-        self.in_pattern = '/Volumes/photo/_worlds/*.MP4'
-        self.crop_pattern = '_crop_{dt:%Y-%m-%d}_{{i:02d}}.mkv'.format(**locals())
-        self.final_pattern = 'world_{dt:%Y-%m-%d}.mkv'.format(**locals())
+        self.in_pattern = '/Volumes/photo/_worlds/{mode}/*.MP4'.format(**locals())
+        self.crop_pattern = '_{mode}_{dt:%Y-%m-%d}_{{i:02d}}.mkv'.format(**locals())
+        self.final_pattern = '{device_id}_{mode}_{dt:%Y-%m-%d}.mkv'.format(**locals())
     
     def get_raw(self):
         '''Gets the raw filenames for the windows'''
         filenames = glob(self.in_pattern)
+        if len(filenames) < self.num_images:
+            return filenames
+            
         np.random.seed(self.dt.toordinal())
-        raw = np.random.choice(filenames, self.num_images)
+        raw = np.random.choice(filenames, self.num_images, replace=False)
         return raw
 
 
@@ -80,106 +124,86 @@ class Renderer(object):
     
     def crop(self, videos):
         '''Crop videos so that they are square'''
-        def _ffmpeg_crop(config, filename, i):
-            w = config.crop_width
-            h = config.crop_height
-            x = int( (1920-w)/2.0 )
-            y = int( (1080-h)/2.0 )
+        config = self.config
+        w = config.crop_width
+        h = config.crop_height
+        x = int( (1920-w)/2.0 )
+        y = int( (1080-h)/2.0 )
+        panel_resolution = '{config.width}x{config.height}'.format(**locals())
+        
+        outputs = []
+        for i, filename in enumerate(videos):
             output_filename = config.crop_pattern.format(**locals())
+            outputs.append(output_filename)
             
-            cmd = 'ffmpeg -y -i {filename} -filter:v crop={w}:{h}:{x}:{y} {output_filename}'.format(**locals())
-            
-            if not os.path.exists(output_filename):
-                self._run(cmd)
-            return output_filename
-        
-        crops = [_ffmpeg_crop(self.config, filename, i)
-                 for i, filename in enumerate(videos)]
-        return crops
+            if os.path.exists(output_filename):
+                continue
+            (ffmpeg
+                .input(filename)
+                .filter('crop', w,h,x,y)
+                .filter('scale', panel_resolution)
+                .output(output_filename, pix_fmt='yuv420p')
+                .run()
+                )
+            print(output_filename)
+        return outputs
     
     
-    def world(self, videos):
+    def world(self, videos, metadata):
         '''Grid of videos'''
-        
-        # def _filter_complex(config, filenames):
-        #     nx = int(config.display_width / config.width)
-        #     ny = int(config.display_height / config.height)
-        #     xy = product(range(nx), range(ny))
-        #
-        #     ox = int( (config.display_width - nx*config.width)/2 )
-        #     oy = int( (config.display_height - ny*config.height)/2 )
-        #
-        #     resolution='{config.display_width}x{config.display_height}'.format(**locals())
-        #     panel_resolution = '{config.width}x{config.height}'.format(**locals())
-        #
-        #     start_template = '[{index}:v] setpts=PTS-STARTPTS, scale={panel_resolution} [{name}];'
-        #     combine_template = '[{prev_name}][{name}] overlay=shortest=1:x={x}:y={y} [{next_name}];'
-        #
-        #     prev_name = 'base'
-        #     filter_complex = '''nullsrc=size=640x480 [{prev_name}];'''.format(**locals())
-        #     second_complex = ''
-        #     for index,((i,j),filename) in enumerate(zip(xy, videos)):
-        #         x = ox + (i*config.width) % config.display_width
-        #         y = oy + (j*config.height) % config.display_height
-        #
-        #         name = 'video_{i}_{j}'.format(**locals())
-        #         next_name = 'tmp_{index}'.format(**locals())
-        #         filter_complex += start_template.format(**locals())
-        #         second_complex += combine_template.format(**locals())
-        #         prev_name = next_name
-        #
-        #     return filter_complex + second_complex
-        
-        # inputs = ' '.join(['-i {filename}\n'.format(**locals())
-        #                     for filename in videos])
-        # filter_complex = _filter_complex(self.config, videos)
-        
-        # output_filename = self.config.final_pattern.format(**locals())
-        # output_values = '-c:v libx264 {output_filename}'.format(**locals())
-        
-        # cmd = '''ffmpeg -y {inputs} -filter_complex {filter_complex} {output_values}'''.format(**locals())
-        
-        
-        
         
         config = self.config
         nx = int(config.display_width / config.width)
         ny = int(config.display_height / config.height)
         xy = product(range(nx), range(ny))
+        ji = product(range(ny), range(nx))
         
         ox = int( (config.display_width - nx*config.width)/2 )
         oy = int( (config.display_height - ny*config.height)/2 )
         resolution='{config.display_width}x{config.display_height}'.format(**locals())
         panel_resolution = '{config.width}x{config.height}'.format(**locals())
         
-        
-        #https://github.com/kkroening/ffmpeg-python/issues/121
-        
-        
-        # stream = ffmpeg.input(videos[0])
-        # stream = (ffmpeg
-        #           .drawbox(50, 50, 120, 120, color='red', thickness=5)
-        #           .filter('nullsrc', size=resolution) )
-        # stream = ffmpeg.FilterNode()
-        # stream = (ffmpeg
-        #          .input('pipe:')
-        #          .filter(None, 'nullsrc', size=resolution))
-        
-        
         stream = None
-        for index,((i,j),filename) in enumerate(zip(xy, videos)):
-            if index > 2:
-                break
+        for index,((j,i),filename, meta) in enumerate(zip(ji, videos, metadata)):
+            # if index > 2:
+            #     break
                 
             x = ox + (i*config.width) % config.display_width
             y = oy + (j*config.height) % config.display_height
-            name = 'video_{i}_{j}'.format(**locals())
+            name = 'video_{i}_{j} '.format(**locals())
+            name = '{meta[File:FileInodeChangeDate]}'.format(**locals())
+            offset = index*60*10
             
-            video = (ffmpeg.input(filename)
+            in_file = ffmpeg.input(filename)
+            
+            if config.mode == 'world':
+                start = 0
+                end = int(meta['QuickTime:TrackDuration']*meta['QuickTime:VideoFrameRate'])
+                mid = int( (end-start)*index/len(videos) )
+                unit = (
+                    ffmpeg
+                    .concat(in_file.trim(start_frame=mid, end_frame=end),
+                            in_file.filter('reverse'),
+                            in_file.trim(start_frame=start, end_frame=mid))
+                )
+            else:
+                unit = in_file
+                
+            
+            video = (unit
                       .setpts('PTS-STARTPTS')
                       .filter('scale', panel_resolution)
-                      # .drawtext(text=name, x=x, y=y, )
-                      .drawbox(x=x, y=y, width=config.width, height=config.height, color='red')
+                      .drawtext(name, 
+                                x='(w-text_w-5)',
+                                y='(h-text_h-5)',
+                                alpha=0.9, fontcolor='white', 
+                                fontsize=12,
+                                # box=2, boxcolor='black',
+                                borderw=2, bordercolor='LightSteelBlue@0.5', )
+                      .drawbox(x=0, y=0, 
+                               width=config.width, 
+                               height=config.height, 
+                               color=config.border_color, thickness=1)
                       )
             if stream is None:
                 stream = (video
@@ -188,80 +212,51 @@ class Renderer(object):
                                    height=config.display_height, 
                                    width=config.display_width) )
             else:
-                stream = ffmpeg.overlay(stream, video, x=x, y=y, shortest=1)
+                #, shortest=1
+                stream = ffmpeg.overlay(stream, video, x=x, y=y)
         
+        # stream = stream.filter('loop', 2)
         output_filename = self.config.final_pattern.format(**locals())
-        stream = stream.output(output_filename)
+        stream = stream.output(output_filename, 
+                                movflags='+faststart', 
+                                tune='film', 
+                                crf=17, 
+                                preset='slow', 
+                                pix_fmt='yuv420p')
         #, format='h264'
+        
         stream = stream.overwrite_output()
         stream = stream.run()
         return output_filename
         
         
-       #  https://github.com/varenc/homebrew-ffmpeg
-       # brew tap varenc/ffmpeg
-       # brew install varenc/ffmpeg/ffmpeg
-       # brew options varenc/ffmpeg/ffmpeg
-       
-        #https://trac.ffmpeg.org/wiki/Create%20a%20mosaic%20out%20of%20several%20input%20videos
-        #https://www.raspberrypi.org/documentation/raspbian/applications/omxplayer.md
-        #https://github.com/kkroening/ffmpeg-python/blob/master/ffmpeg/_filters.py#L28
-                #
-        #
-        # cmd = ['ffmpeg', '-y']
-        # for filename in videos:
-        #     cmd += ['-i', filename]
-        #
-        # filter_complex = _filter_complex(self.config, videos)
-        # cmd += ['-filter_complex', filter_complex ]
-        #
-        # output_filename = self.config.final_pattern.format(**locals())
-        # cmd += ['-c:v', 'libx264', output_filename]
-        #
-        # # print('\n'.join(cmd))
-        # self._run(cmd)
-        # return output_filename
-        #
-       #
-#
-            # ffmpeg -i input.mp4 \
-            # -vf crop=1424:720:0:40,scale=1280:720,setsar=1 -c:a copy output.mp4
-            
-#
-# single:
-#     ffmpeg \
-#         -i /Volumes/photo/_worlds/DJI_0586.MP4 \
-#         -i /Volumes/photo/_worlds/DJI_0572.MP4 \
-#         -i /Volumes/photo/_worlds/DJI_0566.MP4 \
-#         -i /Volumes/photo/_worlds/DJI_0573.MP4 \
-#         -filter_complex " \
-#             nullsrc=size=$(RES) [base]; \
-#             [0:v] setpts=PTS-STARTPTS, scale=$(RES_HALF) [upperleft]; \
-#             [1:v] setpts=PTS-STARTPTS, scale=$(RES_HALF) [upperright]; \
-#             [2:v] setpts=PTS-STARTPTS, scale=$(RES_HALF) [lowerleft]; \
-#             [3:v] setpts=PTS-STARTPTS, scale=$(RES_HALF) [lowerright]; \
-#             [base][upperleft] overlay=shortest=1 [tmp1]; \
-#             [tmp1][upperright] overlay=shortest=1:x=$(X_HALF) [tmp2]; \
-#             [tmp2][lowerleft] overlay=shortest=1:y=$(Y_HALF) [tmp3]; \
-#             [tmp3][lowerright] overlay=shortest=1:x=$(X_HALF):y=$(Y_HALF) " \
-#         -c:v libx264 output.mkv
 
+import exiftool
+from pprint import pprint
 
 def world(config=None):
     '''Wall of World Videos
     '''
     raw = config.get_raw()
+    with exiftool.ExifTool() as et:
+        metadata = et.get_metadata_batch(raw)
+    # pprint(metadata)
+    # return
     
     renderer = Renderer(config)
     crops = renderer.crop(raw)
-    final = renderer.world(crops)
+    final = renderer.world(crops, metadata)
+    
+    
+    pprint(metadata[0])
+    
     print(final)
-    # crops = get_crops(config, raw)
-    # final = get_final(config, crops)
     
-    
-    
-    
+    # for filename in raw:
+        # probe = ffmpeg.probe(filename)
+        # video_stream = next((stream for stream in probe['streams']
+        #                     if stream['codec_type'] == 'video'), None)
+        # print(video_stream)
     
 
 
