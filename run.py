@@ -25,24 +25,25 @@ import ffmpeg
 
 _ = datetime.now()
 NOW = datetime(_.year, _.month, _.day)
-PINGPONG = 'pingpong' # interesting...
+STREAM_PINGPONG = 'pingpong' # interesting...
+STREAM_TEXT = 'text'
 
 
 
 PARAMS = {
     # travel
-    'display01_world':{
-        'display_width':    800,
-        'display_height':   480,
-        'width':            200,
-        'height':           200,
-        'crop_height':      1080,
-        'crop_width':       1080,
-                            
-        'num_images':       16,
-        'ha':               'center',
-        'va':               'center'
-    },
+    # 'display01_world':{
+    #     'display_width':    800,
+    #     'display_height':   480,
+    #     'width':            200,
+    #     'height':           200,
+    #     'crop_height':      1080,
+    #     'crop_width':       1080,
+    #
+    #     'num_images':       16,
+    #     'ha':               'center',
+    #     'va':               'center'
+    # },
     
     # pi camera
     'display03_world':{
@@ -57,42 +58,76 @@ PARAMS = {
         'ha':               'center',
         'va':               'center',
         'shape':            'square',
-        'effects':          [PINGPONG],
+        'effects':          [STREAM_PINGPONG, STREAM_TEXT],
         'exclude_index':    [2,3],
-        
     },
     
+    'display03_fullscreen':{
+        'display_width':    1280,
+        'display_height':   720,
+        'width':            1280,
+        'height':           720,
+        # 'crop_height':      1080,
+        # 'crop_width':       1080,
+        
+        'num_images':       8,
+        'ha':               'center',
+        'va':               'center',
+        'shape':            'output',
+        'effects':          [STREAM_TEXT],
+        'exclude_index':    [],
+    },
+    
+    
+    'display03_youtube':{
+        'display_width':    1280,
+        'display_height':   720,
+        'width':            640,
+        'height':           360,
+        # 'crop_height':      1080,
+        # 'crop_width':       1080,
+        
+        'num_images':       4,
+        'ha':               'center',
+        'va':               'center',
+        'shape':            'output',
+        'effects':          [STREAM_TEXT],
+        'exclude_index':    [1],
+    },
+    
+    
+    
     # TV
-    'display05_world':{
-        'display_width':    1920,
-        'display_height':   1080,
-        'width':            240, # 8
-        'height':           240,
-        'crop_height':      1080,
-        'crop_width':       1080,
-                            
-        'num_images':       32,
-        'shape':            'square',
-        'ha':               'center',
-        'va':               'center',
-    },
-    'display05_travel':{
-        'display_width':    1920,
-        'display_height':   1080,
-        #'height':           360,
-        #'width':            640, # 3
-        #'num_images':       9,
-        'height':           270,
-        'width':            480, # 4
-        'num_images':       16,
-        
-        'crop_height':      1080,
-        'crop_width':       1920,
-                            
-        
-        'ha':               'center',
-        'va':               'center',
-    },
+    # 'display05_world':{
+    #     'display_width':    1920,
+    #     'display_height':   1080,
+    #     'width':            240, # 8
+    #     'height':           240,
+    #     'crop_height':      1080,
+    #     'crop_width':       1080,
+    #
+    #     'num_images':       32,
+    #     'shape':            'square',
+    #     'ha':               'center',
+    #     'va':               'center',
+    # },
+    # 'display05_travel':{
+    #     'display_width':    1920,
+    #     'display_height':   1080,
+    #     #'height':           360,
+    #     #'width':            640, # 3
+    #     #'num_images':       9,
+    #     'height':           270,
+    #     'width':            480, # 4
+    #     'num_images':       16,
+    #
+    #     'crop_height':      1080,
+    #     'crop_width':       1920,
+    #
+    #
+    #     'ha':               'center',
+    #     'va':               'center',
+    # },
     
 }
 
@@ -107,9 +142,11 @@ MODE='travel'
 
 
 DEFAULT_DEVICE = 'display03'
-MODE='world'
+MODE='fullscreen'
 
 
+DEFAULT_DEVICE = 'display03'
+MODE='youtube'
 
 
 
@@ -121,6 +158,7 @@ class Config(object):
         self.dt = dt
         self.device_id = device_id
         self.mode = mode
+        self.debug = False
         # self.display_width,self.display_height = DISPLAY_PARAMS[device_id]
         
         self.tag = '{device_id}_{mode}'.format(**locals())
@@ -129,14 +167,17 @@ class Config(object):
         
         self.border_color = 'LightSteelBlue'
         
-        self.in_pattern = '/Volumes/photo/_worlds/{mode}/*.MP4'.format(**locals())
+        self.in_pattern = '/Volumes/photo/_worlds/{mode}/*'.format(**locals())
         self.crop_pattern = '_{mode}_{dt:%Y-%m-%d}_{{i:02d}}.mkv'.format(**locals())
         self.final_pattern = '{device_id}_{mode}_{dt:%Y-%m-%d}.mkv'.format(**locals())
-    
+        
+        # self.in_pattern = '/Volumes/photo/_worlds/{mode}/*.gif'.format(**locals())
+        
     def get_raw(self):
         '''Gets the raw filenames for the windows'''
         filenames = glob(self.in_pattern)
-        if len(filenames) < self.num_images:
+        assert len(filenames) > 0, IOError('No input images cound')
+        if len(filenames) <= self.num_images:
             return filenames
             
         np.random.seed(self.dt.toordinal())
@@ -145,6 +186,7 @@ class Config(object):
     
     def get_metadata(self, filenames):
         with exiftool.ExifTool() as et:
+            print(filenames)
             metadata = et.get_metadata_batch(filenames)
         
         for meta in metadata:
@@ -159,6 +201,8 @@ class Config(object):
                 meta['w'] = meta['h'] = meta['QuickTime:ImageHeight']
                 meta['x'] = int( (meta['QuickTime:ImageWidth'] - meta['QuickTime:ImageHeight'])/2.0 )
                 meta['y'] = 0
+            # elif self.shape == 'output':
+            #     pass
             else:
                 meta['x'] = 0
                 meta['y'] = 0
@@ -180,7 +224,24 @@ class Renderer(object):
         self.oy = int( (config.display_height - self.ny*config.height)/2 )
         self.resolution='{config.display_width}x{config.display_height}'.format(**locals())
         self.panel_resolution = '{config.width}x{config.height}'.format(**locals())
+    
+    def write(self, output_filename, stream, **kwargs):
+        params = dict(
+            # movflags='+faststart',
+            tune='film',
+            # crf=17, 
+            # preset='slow',
+            # format='h264',
+            pix_fmt='yuv420p'
+        )
+        params.update(kwargs)
         
+        stream = stream.output(output_filename, **params)
+        stream = stream.overwrite_output()
+        if config.debug:
+            pprint(ffmpeg.get_args(stream))
+        stream = stream.run()
+        print(stream)
 
     
     def pingpong(self, video, meta, frac_offset=0):
@@ -195,20 +256,20 @@ class Renderer(object):
         if start != mid:
             parts.append(v[2].trim(start_frame=start, end_frame=mid))
         
-        return ffmpeg.concat(*parts)
+        return ffmpeg.concat(*parts).filter('loop')
     
     def title(self, video, name, meta):
         return (video
         
-        .drawtext(name, 
-                  x='(w-text_w-5)',
-                  y='(h-text_h-5)',
-                  escape_text=False,
-                  
-                  alpha=0.9, fontcolor='white', 
-                  fontsize=12,
-                  # box=2, boxcolor='black',
-                  borderw=2, bordercolor='LightSteelBlue@0.5', )
+        # .drawtext(name,
+        #           x='(w-text_w-5)',
+        #           y='(h-text_h-5)',
+        #           escape_text=False,
+        #
+        #           alpha=0.9, fontcolor='white',
+        #           fontsize=12,
+        #           # box=2, boxcolor='black',
+        #           borderw=2, bordercolor='LightSteelBlue@0.5', )
         
         .drawtext(meta['title'], 
                   x='(w-text_w)',
@@ -227,6 +288,10 @@ class Renderer(object):
         config = self.config
         num_videos = len(metadata)
         stream = None
+        max_duration = max([meta['QuickTime:Duration'] for meta in metadata])
+        print(max_duration)
+        # max_duration=20
+        
         for index,((j,i), meta) in enumerate(zip(self.ji, metadata)):
             
             if index in config.exclude_index:
@@ -236,16 +301,21 @@ class Renderer(object):
             y = self.oy + (j*config.height) % config.display_height
             name = 'video_{index}_{i}_{j} '.format(**locals())
             
+            pprint(meta)
             
+            # -fflags +genpts -stream_loop -1
             video = (
                 ffmpeg
-                .input(meta['SourceFile'])
+                .input(meta['SourceFile'], stream_loop=-1, t=max_duration)
                 .filter('crop', meta['w'],meta['h'],meta['x'],meta['y'])
-                .filter('scale', self.panel_resolution) )
+                .filter('scale', self.panel_resolution) 
+                .filter('fade', t='in', start_time=0, duration=5)
+                .filter('fade', t='out', start_time=max_duration-5, duration=5)
+                )
             
-            if PINGPONG in config.effects:
+            if STREAM_PINGPONG in config.effects:
                 video = self.pingpong(video, meta, index/num_videos)
-            elif TEXT in config.effects:
+            elif STREAM_TEXT in config.effects:
                 video = self.title(video, name, meta)
             video = (video
                       .setpts('PTS-STARTPTS')
@@ -265,165 +335,71 @@ class Renderer(object):
         
         # stream = stream.filter('loop', 2)
         output_filename = self.config.final_pattern.format(**locals())
-        stream = stream.output(output_filename, 
-                                movflags='+faststart', 
-                                tune='film', 
-                                crf=17, 
-                                preset='slow', 
-                                format='h264',
-                                pix_fmt='yuv420p')
-        #, format='h264'
+        self.write(output_filename, stream)
         
-        stream = stream.overwrite_output()
-        
-        pprint(ffmpeg.get_args(stream))
-        stream = stream.run()
         return output_filename
     
-    
-    # def _run(self, cmd):
-    #     try:
-    #         if isinstance(cmd, (list, tuple)):
-    #             _cmd = cmd
-    #         else:
-    #             _cmd = cmd.split()
-    #         print(_cmd)
-    #         print(subprocess.check_output(_cmd))
-    #     except KeyboardInterrupt:
-    #         print('bye')
-    
-    
-    
-    
-    # def crop(self, videos, metadata):
-    #     '''Crop videos so that they are square'''
-    #     config = self.config
-    #     w = config.crop_width
-    #     h = config.crop_height
-    #     x = int( (1920-w)/2.0 )
-    #     y = int( (1080-h)/2.0 )
-    #     panel_resolution = '{config.width}x{config.height}'.format(**locals())
-    #
-    #     outputs = []
-    #     for i, (filename, meta) in enumerate(zip(videos,metadata)):
-    #         output_filename = config.crop_pattern.format(**locals())
-    #         outputs.append(output_filename)
-    #
-    #         if os.path.exists(output_filename):
-    #             continue
-    #         (ffmpeg
-    #             .input(filename)
-    #             .filter('crop', w,h,x,y)
-    #             .filter('scale', panel_resolution)
-    #             .output(output_filename, pix_fmt='yuv420p')
-    #             .run()
-    #             )
-    #         print(output_filename)
-    #     return outputs
-    
-    
-    
-    
-    # def world(self, videos, metadata):
-    #     '''Grid of videos'''
-    #
-    #     config = self.config
-    #     nx = int(config.display_width / config.width)
-    #     ny = int(config.display_height / config.height)
-    #     xy = product(range(nx), range(ny))
-    #     ji = product(range(ny), range(nx))
-    #
-    #     ox = int( (config.display_width - nx*config.width)/2 )
-    #     oy = int( (config.display_height - ny*config.height)/2 )
-    #     resolution='{config.display_width}x{config.display_height}'.format(**locals())
-    #     panel_resolution = '{config.width}x{config.height}'.format(**locals())
-    #
-    #     stream = None
-    #     for index,((j,i),filename, meta) in enumerate(zip(ji, videos, metadata)):
-    #         # if index > 2:
-    #         #     break
-    #
-    #         x = ox + (i*config.width) % config.display_width
-    #         y = oy + (j*config.height) % config.display_height
-    #         name = 'video_{i}_{j} '.format(**locals())
-    #
-    #         name = '{meta[File:FileInodeChangeDate]}'.format(**locals())
-    #         offset = index*60*10
-    #
-    #         in_file = ffmpeg.input(filename)
-    #
-    #         if config.mode == 'world':
-    #             start = 0
-    #             end = int(meta['QuickTime:TrackDuration']*meta['QuickTime:VideoFrameRate'])
-    #             mid = int( (end-start)*index/len(videos) )
-    #             unit = (
-    #                 ffmpeg
-    #                 .concat(in_file.trim(start_frame=mid, end_frame=end),
-    #                         in_file.filter('reverse'),
-    #                         in_file.trim(start_frame=start, end_frame=mid))
-    #             )
-    #         else:
-    #             unit = in_file
-    #
-    #
-    #         video = (unit
-    #                   .setpts('PTS-STARTPTS')
-    #                   .filter('scale', panel_resolution)
-    #                   .drawtext(name,
-    #                             x='(w-text_w-5)',
-    #                             y='(h-text_h-5)',
-    #                             alpha=0.9, fontcolor='white',
-    #                             fontsize=12,
-    #                             # box=2, boxcolor='black',
-    #                             borderw=2, bordercolor='LightSteelBlue@0.5', )
-    #                   .drawbox(x=0, y=0,
-    #                            width=config.width,
-    #                            height=config.height,
-    #                            color=config.border_color, thickness=1)
-    #                   )
-    #         if stream is None:
-    #             stream = (video
-    #                       # .filter('offset', )
-    #                       .filter('pad', x=x,y=y,
-    #                                height=config.display_height,
-    #                                width=config.display_width) )
-    #         else:
-    #             #, shortest=1
-    #             stream = ffmpeg.overlay(stream, video, x=x, y=y)
-    #
-    #     # stream = stream.filter('loop', 2)
-    #     output_filename = self.config.final_pattern.format(**locals())
-    #     stream = stream.output(output_filename,
-    #                             movflags='+faststart',
-    #                             tune='film',
-    #                             crf=17,
-    #                             preset='slow',
-    #                             pix_fmt='yuv420p')
-    #     #, format='h264'
-    #
-    #     stream = stream.overwrite_output()
-    #     stream = stream.run()
-    #     return output_filename
+    def concatenate(self, metadata):
+        config = self.config
         
+        videos = []
+        for index, meta in enumerate(metadata):
+            # print(index,j,i,meta['title'])
+            video = (
+                ffmpeg
+                .input(meta['SourceFile'])
+                # .filter('crop', meta['w'],meta['h'],meta['x'],meta['y'])
+                .filter('scale', self.resolution, force_original_aspect_ratio='decrease') 
+                .filter('pad', 
+                        x=0, #x='((out_w - in_w)/2)', 
+                        y='((out_h - in_h)/2)',
+                        w=self.config.display_width, h=self.config.display_height)
+                .filter('fps', fps=12)
+                )
         
+            if STREAM_PINGPONG in config.effects:
+                video = self.pingpong(video, meta, index/num_videos)
+            elif STREAM_TEXT in config.effects:
+                video = self.title(video, 'test', meta)
+            videos.append(video)
+            # break
+        output = (
+            ffmpeg
+            .concat(*videos)
+            
+             )
+        
+        output_filename = self.config.final_pattern.format(**locals())
+        self.write(output_filename, output)
+        return output_filename
+            
 
+        
+import time
 import exiftool
 from pprint import pprint
 
 def world(config=None):
     '''Wall of World Videos
     '''
+    st = time.time()
+    
     raw = config.get_raw()
     metadata = config.get_metadata(raw)
     
     
     renderer = Renderer(config) 
-    # final = renderer.mosaic(metadata)
-    # final = renderer.
+    # 
+    if config.mode == 'fullscreen':
+        final = renderer.concatenate(metadata)
+    else:
+        final = renderer.mosaic(metadata)
     
     
-    pprint(metadata[0])
+    pprint(metadata)
     print(final)
+    delta = time.time() - st
+    print('Delta: {m:0.0}:{s:0}'.format(m=delta/60.0, s=delta%60))
     # crops = renderer.crop(raw, metadata)
     # final = renderer.world(crops, metadata)
     
