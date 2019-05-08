@@ -44,6 +44,15 @@ DEVICES = {
         'display_height':   480,
         'width':            200,
         'height':           200,
+    },
+    'display03':{
+        'display_width':    1920,
+        'display_height':   1080,
+        'width':            240, # 8
+        'height':           240,
+        #     #     #'height':           360,
+        #     #     #'width':            640, # 3
+        #     #     #'num_images':       9,
     }
 }
 MODES = {
@@ -65,121 +74,24 @@ MODES = {
         'num_images':       32,
         'exclude_index':    [],
     },
+    'youtube': {
+        'shape':            'output',
+        'effects':          [STREAM_TEXT, STREAM_FADE],
+        'rows':             1,
+        'cols':             2,
+        'num_images':       2,
+        'exclude_index':    [1],
+    },
     'timelapse': {
-        
+        'shape':            'output',
+        'effects':          [STREAM_FADE],
+        'rows':             1,
+        'cols':             1,
+        'num_images':       None,
+        'exclude_index':    [],
     }
 }
 
-# PARAMS = {
-#     # travel
-#     # 'display01_world':{
-#     #     'width':            200,
-#     #     'height':           200,
-#     #     'crop_height':      1080,
-#     #     'crop_width':       1080,
-#     #
-#     #     'num_images':       16,
-#     #     'ha':               'center',
-#     #     'va':               'center'
-#     # },
-#
-#     # pi camera
-#     'world':{
-#         'width':            320,
-#         'height':           320,
-#         # 'crop_height':      1080,
-#         # 'crop_width':       1080,
-#
-#         'num_images':       8,
-#         'ha':               'center',
-#         'va':               'center',
-#
-#
-#
-#     },
-#
-#     'display03_fullscreen':{
-#         'display_width':    1280,
-#         'display_height':   720,
-#         'width':            1280,
-#         'height':           720,
-#         # 'crop_height':      1080,
-#         # 'crop_width':       1080,
-#
-#         'num_images':       8,
-#         'ha':               'center',
-#         'va':               'center',
-#         'shape':            'output',
-#         'effects':          [STREAM_TEXT],
-#         'exclude_index':    [],
-#     },
-#
-#
-#     'display03_youtube':{
-#         'display_width':    1280,
-#         'display_height':   720,
-#         'width':            640,
-#         'height':           360,
-#         # 'crop_height':      1080,
-#         # 'crop_width':       1080,
-#
-#         'num_images':       4,
-#         'ha':               'center',
-#         'va':               'center',
-#         'shape':            'output',
-#         'effects':          [STREAM_TEXT, STREAM_FADE],
-#         'exclude_index':    [1],
-#     },
-#
-#     'display03_timelapse':{
-#         'display_width':    1280,
-#         'display_height':   720,
-#         'width':            1280,
-#         'height':           720,
-#         # 'crop_height':      1080,
-#         # 'crop_width':       1080,
-#
-#         'num_images':       None,
-#         'ha':               'center',
-#         'va':               'center',
-#         'shape':            'output',
-#         'effects':          [],
-#         'exclude_index':    [],
-#     },
-#
-#     # TV
-#     # 'display05_world':{
-#     #     'display_width':    1920,
-#     #     'display_height':   1080,
-#     #     'width':            240, # 8
-#     #     'height':           240,
-#     #     'crop_height':      1080,
-#     #     'crop_width':       1080,
-#     #
-#     #     'num_images':       32,
-#     #     'shape':            'square',
-#     #     'ha':               'center',
-#     #     'va':               'center',
-#     # },
-#     # 'display05_travel':{
-#     #     'display_width':    1920,
-#     #     'display_height':   1080,
-#     #     #'height':           360,
-#     #     #'width':            640, # 3
-#     #     #'num_images':       9,
-#     #     'height':           270,
-#     #     'width':            480, # 4
-#     #     'num_images':       16,
-#     #
-#     #     'crop_height':      1080,
-#     #     'crop_width':       1920,
-#     #
-#     #
-#     #     'ha':               'center',
-#     #     'va':               'center',
-#     # },
-#
-# }
 
 # DEFAULT_DEVICE = 'display01'
 # MODE='world'
@@ -197,8 +109,8 @@ MODES = {
 #
 DEFAULT_DEVICE = 'display03'
 # MODE='youtube'
-MODE='world'
-# MODE='timelapse'
+# MODE='world'
+MODE='timelapse'
 
 
 # from ffmpeg._filter import filter_operator, FilterNode
@@ -502,7 +414,16 @@ class Renderer(object):
         return output_filename
     
     def timelapse(self):
-        pass
+        output_filename = self.config.final_pattern.format(**locals())
+        
+        return (ffmpeg
+            .input(self.config.in_pattern+'.jpg', pattern_type='glob', framerate=12)
+            .filter('deflicker', mode='pm', size=10)
+            .filter('scale', size='hd1080', force_original_aspect_ratio='increase')
+            .output(output_filename, crf=20, preset='slower', movflags='faststart', pix_fmt='yuv420p')
+            .run()
+        )
+        
         
 
 
@@ -513,23 +434,27 @@ def create(config=None):
     '''
     
     st = time.time()
-    raw = config.get_raw()
     renderer = Renderer(config) 
-    # 
-    if config.mode == 'fullscreen':
-        metadata = config.get_metadata(raw)
-        final = renderer.concatenate(metadata)
-    elif config.mode == 'timelapse':
+    
+    if config.mode == 'timelapse':
+        # Special handling since we can glob the files
         final = renderer.timelapse()
     else:
+        raw = config.get_raw()
         metadata = config.get_metadata(raw)
-        final = renderer.mosaic(metadata)
+        pprint(metadata[-1])
+        
+        if config.mode == 'fullscreen':
+            final = renderer.concatenate(metadata)
+        elif config.mode in ['youtube', 'world']:
+            final = renderer.mosaic(metadata)
+        else:
+            raise KeyError('Missing mode: {}'.format(config.mode))
     
     
-    pprint(metadata[-1])
     print(final)
-    delta = time.time() - st
-    print('Delta: {m:0.0}:{s:0}'.format(m=delta/60.0, s=delta%60))
+    delta = (time.time() - st)/60
+    print('Minutes Running: {:0.2f}'.format(delta))
 
 
 if __name__ == '__main__':
