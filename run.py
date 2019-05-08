@@ -459,7 +459,7 @@ class Renderer(object):
         # stream = stream.filter('loop', 2)
         
         # null = FilterNode(stream, 'nullsrc', max_inputs=1).stream()
-        stream = self.circle(stream, config.circle_mask)
+        # stream = self.circle(stream, config.circle_mask)
         # stream = ffmpeg.overlay(null, stream)
         
         output_filename = self.config.final_pattern.format(**locals())
